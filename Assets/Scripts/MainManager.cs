@@ -3,6 +3,10 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
+using TMPro;
+#if UNITY_EDITOR
+using UnityEditor;
+#endif
 
 public class MainManager : MonoBehaviour
 {
@@ -12,12 +16,27 @@ public class MainManager : MonoBehaviour
     public int LineCount = 6;
     public Rigidbody Ball;
 
-    public Text ScoreText;
+    public Text Curr_Score;
+    public Text Best_Score;
     public GameObject GameOverText;
-    
+
+    private GameObject entryTemplate;
+    private GameObject entryContainer;
+
+    private TMP_InputField nameInput;
+    public string playerName;
+
+    private int maxScore = 0;
+    private string maxPlayer;
+
+    private List<HighscoreEntry> highscoreEntries = new List<HighscoreEntry>();
+    private List<Transform> highscoreTransforms = new List<Transform>();
+
     private bool m_Started = false;
     private int m_Points;
-    
+
+    private HighscoreEntryList highscores;
+
     private bool m_GameOver = false;
 
     private void Awake()
@@ -26,30 +45,122 @@ public class MainManager : MonoBehaviour
         {
             instance = this;
             DontDestroyOnLoad(instance);
+
+            string jsonString = PlayerPrefs.GetString("highscoreTable");
+            HighscoreEntryList highscores = JsonUtility.FromJson<HighscoreEntryList>(jsonString);
+
+            nameInput = GameObject.Find("Name").GetComponent<TMP_InputField>();
+            nameInput.onEndEdit.AddListener(GetPlayerName);
+
+            SpawnBricks();
         }
         else
         {
             Destroy(gameObject);
+            return;
         }
+    }
+
+    private void GetPlayerName(string name)
+    {
+        playerName = name;
     }
 
     public void Play()
     {
-        SceneManager.LoadScene(1);
+        if (highscores != null)
+        {
+            maxScore = highscores.highscoreEntries[0].score;
+            maxPlayer = highscores.highscoreEntries[0].name;
+        }
+
+        LoadLevel(1);
     }
 
     public void HighScoreMenu()
     {
-        SceneManager.LoadScene(2);
+        LoadLevel(2);
+    }
+
+    private void LoadLevel(int index)
+    {
+        StartCoroutine(LoadAsyncScene(index));
+    }
+
+    IEnumerator LoadAsyncScene(int index)
+    {
+        AsyncOperation asyncLoad = SceneManager.LoadSceneAsync(index);
+
+
+        while (!asyncLoad.isDone)
+        {
+            yield return null;
+        }
+
+        if (index == 1)
+        {
+            MainLoad();
+        }
+        else if (index == 2)
+        {
+            HighscoreLoad();
+        }
+
+        Debug.Log("Scene Loaded");
+    }
+
+    void MainLoad()
+    {
+        GameOverText = GameObject.Find("GameoverText");
+        GameOverText.SetActive(false);
+
+        m_GameOver = false;
+        m_Started = false;
+
+        Curr_Score = GameObject.Find("ScoreText").GetComponent<Text>();
+        Best_Score = GameObject.Find("ScoreText (1)").GetComponent<Text>();
+
+        Best_Score.text = "Best Score - " + maxPlayer + " : " + maxScore;
+
+        Ball = GameObject.Find("Ball").GetComponent<Rigidbody>();
+
+        SpawnBricks();
+    }
+
+    void HighscoreLoad()
+    {
+        //entryContainer = transform.Find("Container");
+        //entryTemplate = transform.Find("RankTemplate");
+
+        entryContainer = GameObject.Find("Container");
+        entryTemplate = GameObject.Find("RankTemplate");
+
+        entryTemplate.gameObject.SetActive(false);
+
+        if (highscores != null)
+        {
+            highscoreTransforms = new List<Transform>();
+            highscores = SortHighscores(highscores);
+            foreach (HighscoreEntry entry in highscores.highscoreEntries)
+            {
+                CreateHighscoreEntryTransform(entry, entryContainer, highscoreTransforms);
+            }
+        }    
     }
 
     public void Exit()
     {
+        string json = JsonUtility.ToJson(highscores);
+        PlayerPrefs.SetString("highscoreTable", json);
+        PlayerPrefs.Save();
+#if UNITY_EDITOR
+        EditorApplication.ExitPlaymode();
+#else
         Application.Quit();
+#endif
     }
 
-    // Start is called before the first frame update
-    void Start()
+    void SpawnBricks()
     {
         const float step = 0.6f;
         int perLine = Mathf.FloorToInt(4.0f / step);
@@ -69,7 +180,7 @@ public class MainManager : MonoBehaviour
 
     private void Update()
     {
-        if (!m_Started)
+        if (!m_Started && SceneManager.GetActiveScene().buildIndex == 1)
         {
             if (Input.GetKeyDown(KeyCode.Space))
             {
@@ -86,7 +197,8 @@ public class MainManager : MonoBehaviour
         {
             if (Input.GetKeyDown(KeyCode.Space))
             {
-                SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
+                GameOverText.SetActive(false);
+                LoadLevel(1);
             }
         }
     }
@@ -94,12 +206,102 @@ public class MainManager : MonoBehaviour
     void AddPoint(int point)
     {
         m_Points += point;
-        ScoreText.text = $"Score : {m_Points}";
+        Curr_Score.text = $"Score : {m_Points}";
     }
 
     public void GameOver()
     {
         m_GameOver = true;
         GameOverText.SetActive(true);
+
+        if (highscores == null)
+        {
+            HighscoreEntry newScore = new HighscoreEntry { score = m_Points, name = playerName };
+            highscoreEntries.Add(newScore);
+            highscores = new HighscoreEntryList{ highscoreEntries = highscoreEntries };
+        }
+        else
+        {
+            highscores.highscoreEntries.Add(AddHighscoreEntry(m_Points, playerName));
+            highscores = SortHighscores(highscores);
+        }
+
+        if (highscores.highscoreEntries[0].score > maxScore)
+        {
+            maxScore = highscores.highscoreEntries[0].score;
+            maxPlayer = highscores.highscoreEntries[0].name;
+            Best_Score.text = "Best Score - " + maxPlayer + " : " + maxScore;
+        }
+
+        m_Points = 0;
+    }
+
+    private class HighscoreEntry
+    {
+        public int score;
+        public string name;
+    }
+
+    [System.Serializable]
+    private class HighscoreEntryList
+    {
+        public List<HighscoreEntry> highscoreEntries;
+    }
+
+    private void CreateHighscoreEntryTransform(HighscoreEntry highscoreEntry, GameObject container, List<Transform> transformList)
+    {
+        float templateHeight = 30f;
+
+        Transform entryTransform = Instantiate( entryTemplate.transform, container.transform);
+        RectTransform entryRectTransform = entryTransform.GetComponent<RectTransform>();
+        entryRectTransform.anchoredPosition = new Vector2(0, -templateHeight * transformList.Count);
+        entryTransform.gameObject.SetActive(true);
+
+        int rank = transformList.Count + 1;
+        string rankString;
+
+        switch (rank)
+        {
+            case 1: rankString = "1st"; break;
+            case 2: rankString = "2nd"; break;
+            case 3: rankString = "3rd"; break;
+            default: rankString = rank + "th"; break;
+        }
+
+        entryTransform.Find("RankTxt").GetComponent<TextMeshProUGUI>().text = rankString;
+        entryTransform.Find("ScoreTxt").GetComponent<TextMeshProUGUI>().text = highscoreEntry.score.ToString();
+        entryTransform.Find("NameTxt").GetComponent<TextMeshProUGUI>().text = highscoreEntry.name;
+
+        transformList.Add(entryTransform);
+    }
+
+    private HighscoreEntry AddHighscoreEntry(int score, string name)
+    {
+        HighscoreEntry highscoreEntry = new HighscoreEntry { score = score, name = name };
+        
+        return highscoreEntry;
+    }
+
+    private HighscoreEntryList SortHighscores(HighscoreEntryList highscoreList)
+    {
+        for (int i = 0; i < highscoreList.highscoreEntries.Count; i++)
+        {
+            for (int j = i + 1; j < highscoreList.highscoreEntries.Count; j++)
+            {
+                if (highscoreList.highscoreEntries[j].score > highscoreList.highscoreEntries[i].score)
+                {
+                    HighscoreEntry tmp = highscoreList.highscoreEntries[i];
+                    highscoreList.highscoreEntries[i] = highscoreEntries[j];
+                    highscoreList.highscoreEntries[j] = tmp;
+                }
+            }
+        }
+
+        if (highscoreList.highscoreEntries.Count > 10)
+        {
+            highscoreList.highscoreEntries.RemoveAt(10);
+        }
+
+        return highscoreList;
     }
 }
