@@ -1,8 +1,10 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
+using System.IO;
 using TMPro;
 #if UNITY_EDITOR
 using UnityEditor;
@@ -46,8 +48,7 @@ public class MainManager : MonoBehaviour
             instance = this;
             DontDestroyOnLoad(instance);
 
-            string jsonString = PlayerPrefs.GetString("highscoreTable");
-            HighscoreEntryList highscores = JsonUtility.FromJson<HighscoreEntryList>(jsonString);
+            LoadHighscores();
 
             nameInput = GameObject.Find("Name").GetComponent<TMP_InputField>();
             nameInput.onEndEdit.AddListener(GetPlayerName);
@@ -68,7 +69,7 @@ public class MainManager : MonoBehaviour
 
     public void Play()
     {
-        if (highscores != null)
+        if (highscores != null && highscores.highscoreEntries != null)
         {
             maxScore = highscores.highscoreEntries[0].score;
             maxPlayer = highscores.highscoreEntries[0].name;
@@ -129,15 +130,12 @@ public class MainManager : MonoBehaviour
 
     void HighscoreLoad()
     {
-        //entryContainer = transform.Find("Container");
-        //entryTemplate = transform.Find("RankTemplate");
-
         entryContainer = GameObject.Find("Container");
         entryTemplate = GameObject.Find("RankTemplate");
 
         entryTemplate.gameObject.SetActive(false);
 
-        if (highscores != null)
+        if (highscores != null && highscores.highscoreEntries != null)
         {
             highscoreTransforms = new List<Transform>();
             highscores = SortHighscores(highscores);
@@ -150,14 +148,51 @@ public class MainManager : MonoBehaviour
 
     public void Exit()
     {
-        string json = JsonUtility.ToJson(highscores);
-        PlayerPrefs.SetString("highscoreTable", json);
-        PlayerPrefs.Save();
+        SaveHighscores();
 #if UNITY_EDITOR
         EditorApplication.ExitPlaymode();
 #else
         Application.Quit();
 #endif
+    }
+
+
+    private void SaveHighscores()
+    {
+        for (int i = 0; i < highscores.highscoreEntries.Count; i++)
+        {
+            HighscoreEntryListSerializable score = new HighscoreEntryListSerializable { score = highscores.highscoreEntries[i].score, name = highscores.highscoreEntries[i].name, listCount = highscores.highscoreEntries.Count };
+            string json = JsonUtility.ToJson(score);
+            File.WriteAllText(Application.persistentDataPath + "/highscores" + i + ".json", json);
+        }
+    }
+
+    private void LoadHighscores()
+    {
+        int listCount;
+
+        string path0 = Application.persistentDataPath + "/highscores0" + ".json";
+        if (File.Exists(path0))
+        {
+            string json = File.ReadAllText(path0);
+            HighscoreEntryListSerializable firstScore = JsonUtility.FromJson<HighscoreEntryListSerializable>(json);
+            listCount = firstScore.listCount;
+            highscoreEntries.Add(new HighscoreEntry { score = firstScore.score, name = firstScore.name });
+
+            for (int j = 1; j < listCount; j++)
+            {
+                string path = Application.persistentDataPath + "/highscores" + j + ".json";
+
+                if (File.Exists(path))
+                {
+                    string json2 = File.ReadAllText(path);
+                    HighscoreEntryListSerializable score = JsonUtility.FromJson<HighscoreEntryListSerializable>(json2);
+                    highscoreEntries.Add(new HighscoreEntry { score = score.score, name = score.name });
+                }
+            }
+
+            highscores = new HighscoreEntryList { highscoreEntries = highscoreEntries };
+        }
     }
 
     void SpawnBricks()
@@ -185,7 +220,7 @@ public class MainManager : MonoBehaviour
             if (Input.GetKeyDown(KeyCode.Space))
             {
                 m_Started = true;
-                float randomDirection = Random.Range(-1.0f, 1.0f);
+                float randomDirection = UnityEngine.Random.Range(-1.0f, 1.0f);
                 Vector3 forceDir = new Vector3(randomDirection, 1, 0);
                 forceDir.Normalize();
 
@@ -214,7 +249,7 @@ public class MainManager : MonoBehaviour
         m_GameOver = true;
         GameOverText.SetActive(true);
 
-        if (highscores == null)
+        if (highscores == null || highscores.highscoreEntries == null)
         {
             HighscoreEntry newScore = new HighscoreEntry { score = m_Points, name = playerName };
             highscoreEntries.Add(newScore);
@@ -242,10 +277,17 @@ public class MainManager : MonoBehaviour
         public string name;
     }
 
-    [System.Serializable]
     private class HighscoreEntryList
     {
         public List<HighscoreEntry> highscoreEntries;
+    }
+
+    [Serializable]
+    public class HighscoreEntryListSerializable
+    {
+        public int score;
+        public string name;
+        public int listCount;
     }
 
     private void CreateHighscoreEntryTransform(HighscoreEntry highscoreEntry, GameObject container, List<Transform> transformList)
