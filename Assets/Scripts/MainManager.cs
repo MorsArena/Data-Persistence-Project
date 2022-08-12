@@ -156,14 +156,16 @@ public class MainManager : MonoBehaviour
 #endif
     }
 
-
     private void SaveHighscores()
     {
-        for (int i = 0; i < highscores.highscoreEntries.Count; i++)
+        if (highscores != null && highscoreEntries != null)
         {
-            HighscoreEntryListSerializable score = new HighscoreEntryListSerializable { score = highscores.highscoreEntries[i].score, name = highscores.highscoreEntries[i].name, listCount = highscores.highscoreEntries.Count };
-            string json = JsonUtility.ToJson(score);
-            File.WriteAllText(Application.persistentDataPath + "/highscores" + i + ".json", json);
+            for (int i = 0; i < highscores.highscoreEntries.Count; i++)
+            {
+                HighscoreEntryListSerializable score = new HighscoreEntryListSerializable { score = highscores.highscoreEntries[i].score, name = highscores.highscoreEntries[i].name, listCount = highscores.highscoreEntries.Count };
+                string json = JsonUtility.ToJson(score);
+                File.WriteAllText(Application.persistentDataPath + "/highscores" + i + ".json", json);
+            }
         }
     }
 
